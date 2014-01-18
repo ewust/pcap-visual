@@ -93,6 +93,20 @@ class Display(object):
 
             x -= (font.size(text)[0]/2.0)
             y -= (font.size(text)[0]/2.0)*rise*run
+            # place above
+            #x += (font.size(text)[1])*abs(run)
+            #y -= (font.size(text)[1])
+
+            shift_x = font.size(text)[1]*rise
+            shift_y = font.size(text)[1]*run
+            if not(arrow.direction):
+                shift_y = -shift_y
+                shift_x = -shift_x
+                pass
+            #pygame.draw.aaline(self.window, Arrow.color, [x,y], [x+shift_x, y-shift_y], True)
+            x += shift_x
+            y -= shift_y
+
             self.window.blit(text_img, [x, y])
 
 
@@ -104,10 +118,14 @@ d = Display()
 a = Arrow(1, 0.000, 0.080)
 d.add_arrow(Arrow(1, 0.000, 0.080, "SYN"))
 d.add_arrow(Arrow(0, 0.100, 0.185, "SYN+ACK"))
-d.add_arrow(Arrow(0, 0.4, 0.9, "Moooo"))
+d.add_arrow(Arrow(0, 0.4, 0.8, "Moooo"))
 d.add_arrow(Arrow(1, 0.210, 0.275, "ACK"))
-d.add_arrow(Arrow(1, 0.3, 0.9, "Wooooooooooooooooooooo"))
+d.add_arrow(Arrow(1, 0.3, 0.8, "Wooooooooooooooooooooo"))
+
+d.add_arrow(Arrow(0, 0.9, 0.9, "Hi"))
+d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
 d.render()
+
 
 
 
