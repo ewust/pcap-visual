@@ -60,9 +60,9 @@ class Arrow(object):
         self.above_text = above_text
         self.below_text = below_text
 
-    def draw_line(self, display, px_per_time):
-        start = [100 if self.direction else display.w - 100, self.start * px_per_time + 100]
-        end = [display.w - 100 if self.direction else 100, self.end * px_per_time + 100]
+    def draw_line(self, display, px_per_time, time_offset):
+        start = [100 if self.direction else display.w - 100, (self.start - time_offset) * px_per_time + 100]
+        end = [display.w - 100 if self.direction else 100, (self.end - time_offset) * px_per_time + 100]
         pygame.draw.aaline(display.window, Arrow.color, start, end, True)
 
         return (start, end)
@@ -119,9 +119,9 @@ class Arrow(object):
 
         display.window.blit(text_img, [x, y])
 
-    def draw(self, display, px_per_time):
+    def draw(self, display, px_per_time, start_time):
         # line and endcap
-        start, end = self.draw_line(display, px_per_time)
+        start, end = self.draw_line(display, px_per_time, start_time)
         self.draw_endcap(display, start, end)
 
         # render above text
@@ -146,6 +146,7 @@ class Display(object):
         self.w = w
         self.h = h
         self.max_time = max_time
+        self.offset_time = 0
         self.window = pygame.display.set_mode((self.w, self.h))
         self.arrows = []
 
@@ -153,15 +154,40 @@ class Display(object):
         self.arrows.append(arrow)
 
 
+    def adjust_max_time(self, zoom_in=True, center_on=None):
+        if center_on == None:
+            center_on = (self.h - 100) / 2
+
+
+        px_per_time = (self.h - 100.0) / self.max_time
+        center_time = (center_on - 100.0) / px_per_time + self.offset_time
+        print 'px_per_time: %f, max_time: %f sec' % (px_per_time, self.max_time)
+        if zoom_in:
+            self.max_time /= 1.1
+        else:
+           self.max_time *= 1.1
+
+
+
+        # need to recenter; center_on px should map to the same time (center_time)
+        # (center_on - 100) / new_px_per_time == (center_on - 100) / px_per_time + offset_time
+        # 
+        px_per_time = (self.h - 100.0) / self.max_time
+        #offset_px = (center_time * px_per_time) #- center_on
+        self.offset_time = center_time - ((center_on - 100.0) / px_per_time) #- center_time #offset_px / px_per_time
+        print "center px: %d, center time: %f, max_time: %f, (%d - %d) => %f sec" % \
+                (center_on, center_time, self.max_time, center_time*px_per_time, center_on, self.offset_time)
+
     def render(self):
         # our playing field is going to be W-200, H-100
         # so time*(H-100)/max_time gives px height for each arrow
         self.window.fill([0, 0, 0])
 
         px_per_time = (self.h - 100) / self.max_time
+        #px_offset = self.offset * px_per_time
         for arrow in self.arrows:
 
-            arrow.draw(self, px_per_time)
+            arrow.draw(self, px_per_time, self.offset_time)
 
         pygame.display.flip()
 
@@ -179,7 +205,7 @@ class Display(object):
 #d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
 #d.render()
 
-d = Display(max_time=5)
+d = Display(max_time=10.0)
 
 
 pcap = PcapReader(open(sys.argv[1], 'r'))
@@ -211,11 +237,13 @@ while True:
             if event.button == 5:
                 # scroll down/out
                 y = event.pos[1]
-                d.max_time *= 1.2
+                d.adjust_max_time(False, y)
+                #d.max_time *= 1.2
                 d.render()
             elif event.button == 4:
                 # scroll up/in
                 y = event.pos[1]
-                d.max_time /= 1.2
+                d.adjust_max_time(True, y)
+                #d.max_time /= 1.2
                 d.render()
 
