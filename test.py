@@ -60,6 +60,73 @@ class Arrow(object):
         self.above_text = above_text
         self.below_text = below_text
 
+    def draw_line(self, display, px_per_time):
+        start = [100 if self.direction else display.w - 100, self.start * px_per_time + 100]
+        end = [display.w - 100 if self.direction else 100, self.end * px_per_time + 100]
+        pygame.draw.aaline(display.window, Arrow.color, start, end, True)
+
+        return (start, end)
+
+    def draw_endcap(self, display, start, end):
+        rise, run = get_norm_slope(start, end)
+
+        x = end[0]
+        y = end[1]
+        rise *= 10
+        run *= 10
+        endcap_pts = [[x+rise, y-run], [x-rise, y+run], [x+2*run, y+2*rise]]
+
+        pygame.draw.aalines(display.window, Arrow.color, True, endcap_pts, True)
+
+
+    def draw_text_along_line(self, display, text, line, above=True):
+        start, end = line
+        rise, run = get_norm_slope(start, end)
+
+        font = pygame.font.Font(None, 24)
+        text_img = font.render(text, 1, (255, 0, 0))
+        if run == 0:
+            text_img = pygame.transform.rotate(text_img, 90)
+        elif self.direction:
+            text_img = pygame.transform.rotate(text_img, -(180.0/math.pi)*math.atan2(rise,run))
+        else:
+            text_img = pygame.transform.rotate(text_img, (180.0/math.pi)*math.atan2(rise,-run))
+
+        # start at midpoint
+        x = (start[0] + end[0])/ 2.0
+        y = (start[1] + end[1])/ 2.0
+        # center the text
+        #shift_w = (display.w - 200.0 - font.size(text)[0]) / 2.0
+
+        if not(self.direction):
+            # subtract off the lip if we rotated text to the left (upper left corner is not upper left corner of text)
+            y -= (text_img.get_height() - font.size(text)[1])
+
+        # center the text
+        x -= (font.size(text)[0]/2.0)
+        y -= (font.size(text)[0]/2.0)*rise*run
+
+        # shift above line if we are above text
+        if above:
+            shift_x = font.size(text)[1]*rise
+            shift_y = font.size(text)[1]*run
+            if not(self.direction):
+                shift_y = -shift_y
+                shift_x = -shift_x
+
+            x += shift_x
+            y -= shift_y
+
+        display.window.blit(text_img, [x, y])
+
+    def draw(self, display, px_per_time):
+        # line and endcap
+        start, end = self.draw_line(display, px_per_time)
+        self.draw_endcap(display, start, end)
+
+        # render above text
+        self.draw_text_along_line(display, self.above_text, (start, end), True)
+
 def get_norm_slope(start, end):
     rise = float(end[1]-start[1])
     run = float(end[0]-start[0])
@@ -93,63 +160,8 @@ class Display(object):
 
         px_per_time = (self.h - 100) / self.max_time
         for arrow in self.arrows:
-            start = [100 if arrow.direction else self.w - 100, arrow.start * px_per_time + 100]
-            end = [self.w - 100 if arrow.direction else 100, arrow.end * px_per_time + 100]
 
-            rise, run = get_norm_slope(start, end)
-
-            x = end[0]
-            y = end[1]
-            rise *= 10
-            run *= 10
-            endcap_pts = [[x+rise, y-run], [x-rise, y+run], [x+2*run, y+2*rise]]
-
-
-            print '\'%s\': rise: %f, run: %f; -- x: %f, y: %f' % (arrow.above_text, rise, run, x, y)
-
-            pygame.draw.aaline(self.window, Arrow.color, start, end, True)
-            # triangle endcap
-            pygame.draw.aalines(self.window, Arrow.color, True, endcap_pts, True)
-
-            # render above text
-            text = arrow.above_text
-            font = pygame.font.Font(None, 30)
-            text_img = font.render(text, 1, (255, 0, 0))
-            if run == 0:
-                text_img = pygame.transform.rotate(text_img, 90)
-            elif arrow.direction:
-                text_img = pygame.transform.rotate(text_img, -(180.0/math.pi)*math.atan2(rise,run))
-            else:
-                text_img = pygame.transform.rotate(text_img, (180.0/math.pi)*math.atan2(rise,-run))
-
-            run /= 10.0
-            rise /= 10.0
-            shift_w = (self.w - 200.0 - font.size(text)[0]) / 2.0
-            x = (start[0] + end[0])/ 2.0
-            y = (start[1] + end[1])/ 2.0
-
-            if not(arrow.direction):
-                # subtract off the lip if we rotated text to the left (upper left corner is not upper left corner of text)
-                y -= (text_img.get_height() - font.size(text)[1])
-
-            x -= (font.size(text)[0]/2.0)
-            y -= (font.size(text)[0]/2.0)*rise*run
-            # place above
-            #x += (font.size(text)[1])*abs(run)
-            #y -= (font.size(text)[1])
-
-            shift_x = font.size(text)[1]*rise
-            shift_y = font.size(text)[1]*run
-            if not(arrow.direction):
-                shift_y = -shift_y
-                shift_x = -shift_x
-                pass
-            #pygame.draw.aaline(self.window, Arrow.color, [x,y], [x+shift_x, y-shift_y], True)
-            x += shift_x
-            y -= shift_y
-
-            self.window.blit(text_img, [x, y])
-
+            arrow.draw(self, px_per_time)
 
         pygame.display.flip()
 
@@ -195,7 +207,15 @@ while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             sys.exit(0)
-        else:
-            #print event
-            pass
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 5:
+                # scroll down/out
+                y = event.pos[1]
+                d.max_time *= 1.2
+                d.render()
+            elif event.button == 4:
+                # scroll up/in
+                y = event.pos[1]
+                d.max_time /= 1.2
+                d.render()
 
