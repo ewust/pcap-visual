@@ -3,9 +3,50 @@
 import sys
 import pygame
 import math
+import struct
+import dpkt
 pygame.init()
 
+def flags_to_str(flags):
+    flag_str = ["FIN", "SYN", "RST", "PSH", "ACK", "URG", "ECE", "CWR"]
+    out = ""
+    for i in range(len(flag_str)):
+        if (flags & (2**i)):
+            out += flag_str[i] + ","
+    return out[:-1]
 
+
+class PcapPacket(dpkt.ethernet.Ethernet):
+    def __init__(self, ts, caplen, actual_len, data):
+        self.ts = ts
+        self.caplen = caplen
+        self.actual_len = actual_len
+        super(PcapPacket, self).__init__(data)
+
+class PcapReader(object):
+    def __init__(self, f=sys.stdin):
+        self.f = f
+        # read header
+        (self.magic, self.version_major, self.version_minor, self.tz, \
+            self.sigfigs, self.snaplen, self.linktype) = \
+            struct.unpack('<LHHLLLL', self.f.read(struct.calcsize('<LHHLLLL')))
+
+    def next_packet(self):
+        dat = self.f.read(struct.calcsize('<LLLL'))
+        if len(dat) == 0:
+            print 'outta data!'
+            return None
+        (ts_sec, ts_usec, caplen, actual_len) = struct.unpack('<LLLL', dat)
+        pkt = self.f.read(caplen)
+        return PcapPacket(ts_sec*1000000+ts_usec, caplen, actual_len, pkt)
+        #yield ({'ts':(ts_sec*1000000 + ts_usec), 'ts_sec':ts_sec, 'ts_usec':ts_usec, 'caplen':caplen, 'actual_len':actual_len}, pkt)
+
+    def packets(self):
+        while True:
+            pkt = self.next_packet()
+            if pkt == None:
+                break
+            yield pkt
 
 
 class Arrow(object):
@@ -114,16 +155,32 @@ class Display(object):
 
 
 
-d = Display()
-a = Arrow(1, 0.000, 0.080)
-d.add_arrow(Arrow(1, 0.000, 0.080, "SYN"))
-d.add_arrow(Arrow(0, 0.100, 0.185, "SYN+ACK"))
-d.add_arrow(Arrow(0, 0.4, 0.8, "Moooo"))
-d.add_arrow(Arrow(1, 0.210, 0.275, "ACK"))
-d.add_arrow(Arrow(1, 0.3, 0.8, "Wooooooooooooooooooooo"))
+#d = Display(max_time=10.0)
+#a = Arrow(1, 0.000, 0.080)
+#d.add_arrow(Arrow(1, 0.000, 0.080, "SYN"))
+#d.add_arrow(Arrow(0, 0.100, 0.185, "SYN+ACK"))
+#d.add_arrow(Arrow(0, 0.4, 0.8, "Moooo"))
+#d.add_arrow(Arrow(1, 0.210, 0.275, "ACK"))
+#d.add_arrow(Arrow(1, 0.3, 0.8, "Wooooooooooooooooooooo"))
+#
+#d.add_arrow(Arrow(0, 0.9, 0.9, "Hi"))
+#d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
+#d.render()
 
-d.add_arrow(Arrow(0, 0.9, 0.9, "Hi"))
-d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
+d = Display(max_time=5)
+
+
+pcap = PcapReader(open(sys.argv[1], 'r'))
+first_pkt = True
+for pkt in pcap.packets():
+    if first_pkt:
+        first_pkt = False
+        start_time = pkt.ts
+    ts = (pkt.ts - start_time) / 1000000.0
+    direction = pkt.data.src == '\xc0\xa8\x01e'
+    print ts, direction, pkt.__repr__()
+    d.add_arrow(Arrow(direction, ts, ts, flags_to_str(pkt.data.data.flags)))
+
 d.render()
 
 
