@@ -35,7 +35,6 @@ class PcapReader(object):
     def next_packet(self):
         dat = self.f.read(struct.calcsize('<LLLL'))
         if len(dat) == 0:
-            print 'outta data!'
             return None
         (ts_sec, ts_usec, caplen, actual_len) = struct.unpack('<LLLL', dat)
         pkt = self.f.read(caplen)
@@ -141,6 +140,8 @@ def get_norm_slope(start, end):
         run_n = 0
     return (rise_n, run_n)
 
+def step_round(x, step=1):
+    return round(step * round(float(x)/step), 12)
 
 class Display(object):
     def __init__(self, w=1024, h=740, max_time=1.000):
@@ -162,24 +163,48 @@ class Display(object):
         if center_on == None:
             center_on = (self.h - 100) / 2
 
-
         px_per_time = (self.h - 100.0) / self.max_time
         center_time = (center_on - 100.0) / px_per_time + self.offset_time
-        print 'px_per_time: %f, max_time: %f sec' % (px_per_time, self.max_time)
         if zoom_in:
             self.max_time /= 1.1
         else:
            self.max_time *= 1.1
-
-
 
         # need to recenter; center_on px should map to the same time (center_time)
         # (center_on - 100) / new_px_per_time == (center_on - 100) / px_per_time + offset_time
         px_per_time = (self.h - 100.0) / self.max_time
         #offset_px = (center_time * px_per_time) #- center_on
         self.offset_time = center_time - ((center_on - 100.0) / px_per_time) #- center_time #offset_px / px_per_time
-        print "center px: %d, center time: %f, max_time: %f, (%d - %d) => %f sec" % \
-                (center_on, center_time, self.max_time, center_time*px_per_time, center_on, self.offset_time)
+        #print "center px: %d, center time: %f, max_time: %f, (%d - %d) => %f sec" % \
+        #        (center_on, center_time, self.max_time, center_time*px_per_time, center_on, self.offset_time)
+
+    def draw_grid(self):
+        px_per_time = (self.h - 100.0) / self.max_time
+        step = 10**round(math.log(self.max_time/10)/math.log(10))
+
+        start_time = step_round(self.offset_time, step)
+        for t in [ round(x*step, 12) for x in range(int((start_time-5*step)/step), int((start_time + self.max_time + 2*step)/step)) ]:
+            t_px = (t - self.offset_time) * px_per_time + 100
+            pygame.draw.aaline(self.window, [50, 50, 50], [60, t_px], [75, t_px], True)
+            pygame.draw.aaline(self.window, [50, 50, 50], [self.w - 60, t_px], [self.w - 75, t_px], True)
+
+            # all the way across?
+            pygame.draw.aaline(self.window, [50, 50, 50], [60, t_px], [self.w - 75, t_px], True)
+
+
+
+            t_str = str(t) + 's'
+            if abs(t) < 1:
+                t_str = str(t*1000)+'ms'
+            if abs(t) < .001:
+                t_str = str(t*1000000)+'us'
+            if t == 0:
+                t_str = '0'
+            font = pygame.font.Font(None, 18)
+            text_img = font.render(t_str, 1, (100, 100, 100))
+            self.window.blit(text_img, [55 - font.size(t_str)[0], t_px - font.size(t_str)[1]/2])
+            self.window.blit(text_img, [self.w - 55, t_px - font.size(t_str)[1]/2])
+
 
     def render(self):
         # our playing field is going to be W-200, H-100
@@ -188,9 +213,12 @@ class Display(object):
 
         px_per_time = (self.h - 100) / self.max_time
         #px_offset = self.offset * px_per_time
+        self.draw_grid()
+
         for arrow in self.arrows:
 
             arrow.draw(self, px_per_time, self.offset_time)
+
 
         pygame.display.flip()
 
