@@ -5,6 +5,7 @@ import pygame
 import math
 import struct
 import dpkt
+import socket
 pygame.init()
 
 def flags_to_str(flags):
@@ -210,13 +211,113 @@ class Display(object):
 
 d = Display(max_time=10.0)
 
+def tcp_opts(opts):
+    i = 0
+    while i < len(opts):
+        kind, opt_len = struct.unpack('>BB', opts[i:i+2])
+        opt_data = ''
 
+        if kind == 0x01:
+            # NOP has no opt len
+            opt_len = 1
+
+        if opt_len > 2:
+            opt_data = opts[i+2:i+opt_len]
+
+        i += opt_len
+        yield (kind, opt_data)
+
+
+def get_tcp_ts(opts):
+    for (opt_kind, opt_data) in tcp_opts(opts):
+        if opt_kind == 0x08:
+            # TCP timestamps
+            print opt_data.encode('hex')
+            value, echo = struct.unpack('>LL', opt_data)
+            return (value, echo)
+    return (None, None)
+
+# first pass:
+# 1) get first packet time
+# 2) get client (whoever sends SYN? whoever sends first?)
+# 3) estimate RTT t(SYN-ACK) - t(SYN)
+# 4) get starting TCP timestamps (in SYN and SYN-ACK)
+# 5) get last TCP timestamp from each, and calculate TCP-timestamp slope
+# 6) ???
+# 7) Profit
 pcap = PcapReader(open(sys.argv[1], 'r'))
 first_pkt = True
+latest_syn = None
+client_ip = None
+server_ip = None
+client_first_tcp_ts = None
+server_first_tcp_ts = None
+latest_client_pkt = None
+latest_server_pkt = None
+rtt = 0.0
 for pkt in pcap.packets():
+
+    ip = pkt.data
+    tcp = ip.data
+
     if first_pkt:
         first_pkt = False
+        # 1) get first packet time
         start_time = pkt.ts
+        # 2) get client (whoever sends first if no SYN)
+        client_ip = ip.src
+        client_port = tcp.sport
+        server_ip = ip.dst
+        server_port = tcp.dport
+
+    if tcp.flags == dpkt.tcp.TH_SYN:
+        # 2) get client (whoever sends SYN)
+        client_ip = ip.src
+        client_port = tcp.sport
+        server_ip = ip.dst
+        server_port = tcp.dport
+
+        latest_syn = pkt
+
+    elif tcp.flags == (dpkt.tcp.TH_SYN | dpkt.tcp.TH_ACK):
+        # 3) estimate RTT t(SYN-ACK) - t(SYN)
+        rtt = (pkt.ts - latest_syn.ts) / 1000000.0
+
+
+    # 4) get starting TCP timestamps (in SYN and SYN-ACK)
+    if ip.src == client_ip and tcp.sport == client_port:
+        if client_first_tcp_ts == None:
+            # first client tcp timestamp packet
+            client_first_tcp_ts, echo_reply = get_tcp_ts(tcp.opts)
+            client_first_real_ts = pkt.ts
+        else:
+            latest_client_pkt = pkt
+
+    elif ip.dst == client_ip and tcp.dport == client_port:
+        if server_first_tcp_ts == None:
+            # first server tcp timestamp packet
+            server_first_tcp_ts, echo_reply = get_tcp_ts(tcp.opts)
+            server_first_real_ts = pkt.ts
+        else:
+            latest_server_pkt = pkt
+
+
+# 5) get last TCP timestamp from each, and calculate TCP-timestamp slope
+client_last_tcp_ts, echo_reply = get_tcp_ts(latest_client_pkt.data.data.opts)
+client_last_real_ts = latest_client_pkt.ts
+
+server_last_tcp_ts, echo_reply = get_tcp_ts(latest_server_pkt.data.data.opts)
+server_last_real_ts = latest_server_pkt.ts
+
+client_tcp_ts_per_sec = (client_last_tcp_ts - client_first_tcp_ts) / ((client_last_real_ts - client_first_real_ts)/1000000.0)
+server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_last_real_ts - server_first_real_ts)/1000000.0)
+
+
+print 'Calculated client: %s:%d, RTT: %f seconds, client: %f tcp_ts/sec server: %f tcp_ts/sec' % \
+    (socket.inet_ntoa(client_ip), client_port, rtt, client_tcp_ts_per_sec, server_tcp_ts_per_sec)
+
+pcap = PcapReader(open(sys.argv[1], 'r'))
+for pkt in pcap.packets():
     ts = (pkt.ts - start_time) / 1000000.0
     direction = pkt.data.src == '\xc0\xa8\x01e'
     print ts, direction, pkt.__repr__()
