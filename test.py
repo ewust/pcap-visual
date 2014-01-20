@@ -231,10 +231,28 @@ def get_tcp_ts(opts):
     for (opt_kind, opt_data) in tcp_opts(opts):
         if opt_kind == 0x08:
             # TCP timestamps
-            print opt_data.encode('hex')
             value, echo = struct.unpack('>LL', opt_data)
             return (value, echo)
     return (None, None)
+
+def rtt_add_seq(rtt_seqs, pkt):
+    tcp = pkt.data.data
+    data_len = len(tcp.data)
+    if (tcp.flags & (dpkt.tcp.TH_SYN | dpkt.tcp.TH_FIN)):
+        data_len += 1
+    if data_len > 0:
+        rtt_seqs[tcp.seq + data_len] = pkt.ts
+
+def rtt_check_ack(rtt_seqs, pkt, cur_rtt):
+    tcp = pkt.data.data
+    if tcp.ack in rtt_seqs:
+        rtt = (pkt.ts - rtt_seqs[tcp.ack]) / 1000000.0
+        if cur_rtt is None or rtt < cur_rtt:
+            cur_rtt = rtt
+    return cur_rtt
+
+
+
 
 # first pass:
 # 1) get first packet time
@@ -254,7 +272,11 @@ client_first_tcp_ts = None
 server_first_tcp_ts = None
 latest_client_pkt = None
 latest_server_pkt = None
+client_rtt_seqs = {}
+server_rtt_seqs = {}
 rtt = 0.0
+client_rtt = None
+server_rtt = None
 for pkt in pcap.packets():
 
     ip = pkt.data
@@ -293,6 +315,9 @@ for pkt in pcap.packets():
         else:
             latest_client_pkt = pkt
 
+        rtt_add_seq(client_rtt_seqs, pkt)
+        client_rtt = rtt_check_ack(server_rtt_seqs, pkt, client_rtt)
+
     elif ip.dst == client_ip and tcp.dport == client_port:
         if server_first_tcp_ts == None:
             # first server tcp timestamp packet
@@ -300,6 +325,18 @@ for pkt in pcap.packets():
             server_first_real_ts = pkt.ts
         else:
             latest_server_pkt = pkt
+
+        rtt_add_seq(server_rtt_seqs, pkt)
+        last_rtt = server_rtt
+        server_rtt = rtt_check_ack(client_rtt_seqs, pkt, server_rtt)
+
+    # 6) TODO: get better RTT estimate (minimum!!)
+    # when we get a packet that increases the sequence
+    # number (SYN, FIN, or data) to a new max (TODO: wrap),
+    # keep that time around. The first ACK for that is an RTT.
+    #>0.000 [0-10]
+    #>0.005 [10-20]
+    #<0.0
 
 
 # 5) get last TCP timestamp from each, and calculate TCP-timestamp slope
@@ -320,8 +357,9 @@ server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_la
 
 
 #rtt = 0.0252
-print 'Calculated client: %s:%d, RTT: %f seconds, client: %f tcp_ts/sec server: %f tcp_ts/sec' % \
-    (socket.inet_ntoa(client_ip), client_port, rtt, client_tcp_ts_per_sec, server_tcp_ts_per_sec)
+rtt = min(max(client_rtt, server_rtt), rtt)
+print 'Calculated client: %s:%d, RTT: %f seconds (client: %f s, server: %f s), client: %f tcp_ts/sec server: %f tcp_ts/sec' % \
+    (socket.inet_ntoa(client_ip), client_port, rtt, client_rtt, server_rtt, client_tcp_ts_per_sec, server_tcp_ts_per_sec)
 
 pcap = PcapReader(open(sys.argv[1], 'r'))
 for pkt in pcap.packets():
@@ -347,7 +385,7 @@ for pkt in pcap.packets():
             send_time = diff
             #print 'Adjusting from %f sec to %f sec' % (recv_time, send_time)
             #start_time = 0
-    print 'recvd at %f, tcp ts %d, determined %f -> %f  --- %s' % (recv_ts, server_first_tcp_ts, send_time, recv_time, pkt.__repr__())
+    #print 'recvd at %f, tcp ts %d, determined %f -> %f  --- %s' % (recv_ts, server_first_tcp_ts, send_time, recv_time, pkt.__repr__())
 
     d.add_arrow(Arrow(direction, send_time, recv_time, flags_to_str(pkt.data.data.flags)))
 
