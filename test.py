@@ -131,6 +131,39 @@ def get_norm_slope(start, end):
     rise = float(end[1]-start[1])
     run = float(end[0]-start[0])
     #print '%f - %f = rise: %f, run: %f' % (start[1], end[1], rise, run)
+    # ensure rise*run = 1?
+    # ensure rise^2 + run^2 = 1
+    #rise/run = x
+    # rise**2 + run**2 = 1
+    '''
+    rise**2 = (1 - run**2)
+    rise = sqrt(1 - run**2)
+
+    sqrt(1 - run**2)/run = x
+    (1-run**2)/run**2 = x**2
+
+    1/run**2 - 1 = x**2
+    1/run**2 = x**2 + 1
+    1/(x**2 + 1) = run**2
+    run = sqrt(1/(x**2 + 1))
+    rise = run*x'''
+
+    #rise = run*x
+    #run = 1/rise
+    #rise = x/rise
+    #rise**2 = x
+
+    #run = 1/(x+1)
+    #rise = x/(x+1)
+    x = rise/run
+    run = math.sqrt(1/(x**2+1))
+    return ((x/abs(x))*run*x, (x/abs(x))*run)
+    #return ((x/(x+1)), 1/(x+1))
+
+    #x^2 / (x+1)^2  + 1/(x+1)^2
+    #(x^2 + 1) / (x^2 + 2x + 1)
+
+
     if run != 0:
         rise_n = (rise/abs(run)) #if run < 0 else (rise/run)
         run_n = run/abs(run) #-1 if (run < 0 and rise > 0) else 1
