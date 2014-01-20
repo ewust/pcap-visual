@@ -175,7 +175,6 @@ class Display(object):
 
         # need to recenter; center_on px should map to the same time (center_time)
         # (center_on - 100) / new_px_per_time == (center_on - 100) / px_per_time + offset_time
-        # 
         px_per_time = (self.h - 100.0) / self.max_time
         #offset_px = (center_time * px_per_time) #- center_on
         self.offset_time = center_time - ((center_on - 100.0) / px_per_time) #- center_time #offset_px / px_per_time
@@ -209,7 +208,7 @@ class Display(object):
 #d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
 #d.render()
 
-d = Display(max_time=10.0)
+d = Display(max_time=1.0)
 
 def tcp_opts(opts):
     i = 0
@@ -243,8 +242,9 @@ def get_tcp_ts(opts):
 # 3) estimate RTT t(SYN-ACK) - t(SYN)
 # 4) get starting TCP timestamps (in SYN and SYN-ACK)
 # 5) get last TCP timestamp from each, and calculate TCP-timestamp slope
-# 6) ???
-# 7) Profit
+# 6) TODO: get better RTT estimate (minimum!!)
+# 7) ???
+# 8) Profit
 pcap = PcapReader(open(sys.argv[1], 'r'))
 first_pkt = True
 latest_syn = None
@@ -312,21 +312,46 @@ server_last_real_ts = latest_server_pkt.ts
 client_tcp_ts_per_sec = (client_last_tcp_ts - client_first_tcp_ts) / ((client_last_real_ts - client_first_real_ts)/1000000.0)
 server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_last_real_ts - server_first_real_ts)/1000000.0)
 
+# we really only care about the server I guess...
+# given a tcp_ts, we want server_first_tcp_ts to map to (server_first_real_ts - rtt/2),
+# then use a slope of server_tcp_ts_per_sec thereafter
+# e.g. ((tcp_ts - server_first_tcp_ts) / server_tcp_ts_per_sec) - rtt/2
 
+
+
+#rtt = 0.0252
 print 'Calculated client: %s:%d, RTT: %f seconds, client: %f tcp_ts/sec server: %f tcp_ts/sec' % \
     (socket.inet_ntoa(client_ip), client_port, rtt, client_tcp_ts_per_sec, server_tcp_ts_per_sec)
 
 pcap = PcapReader(open(sys.argv[1], 'r'))
 for pkt in pcap.packets():
-    ts = (pkt.ts - start_time) / 1000000.0
-    direction = pkt.data.src == '\xc0\xa8\x01e'
-    print ts, direction, pkt.__repr__()
-    d.add_arrow(Arrow(direction, ts, ts, flags_to_str(pkt.data.data.flags)))
+    recv_ts = (pkt.ts - start_time) / 1000000.0
+    ip = pkt.data
+    tcp = ip.data
+    direction = (ip.src == client_ip and tcp.sport == client_port)
+
+    send_time = recv_ts
+    recv_time = recv_ts
+    if direction:
+        # client; shift end time + rtt
+        recv_time += rtt/2.0
+        #print 'Send %f - %f' % (send_time, recv_time)
+    else:
+        # server; set start time based off tcp timestamp
+        value, echo = get_tcp_ts(tcp.opts)
+        if value == None:
+            send_time -= rtt/2.0
+        else:
+            # e.g. ((tcp_ts - server_first_tcp_ts) / server_tcp_ts_per_sec) - rtt/2
+            diff = ((value - server_first_tcp_ts) / server_tcp_ts_per_sec) + (server_first_real_ts - start_time)/1000000.0 - rtt/2.0
+            send_time = diff
+            #print 'Adjusting from %f sec to %f sec' % (recv_time, send_time)
+            #start_time = 0
+    print 'recvd at %f, tcp ts %d, determined %f -> %f  --- %s' % (recv_ts, server_first_tcp_ts, send_time, recv_time, pkt.__repr__())
+
+    d.add_arrow(Arrow(direction, send_time, recv_time, flags_to_str(pkt.data.data.flags)))
 
 d.render()
-
-
-
 
 clock = pygame.time.Clock()
 
@@ -344,13 +369,11 @@ while True:
                 # scroll down/out
                 y = event.pos[1]
                 d.adjust_max_time(False, y)
-                #d.max_time *= 1.2
                 d.render()
             elif event.button == 4:
                 # scroll up/in
                 y = event.pos[1]
                 d.adjust_max_time(True, y)
-                #d.max_time /= 1.2
                 d.render()
             elif event.button == 1:
                 drag_start = event.pos[1]
