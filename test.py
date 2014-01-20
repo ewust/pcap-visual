@@ -208,7 +208,6 @@ class Display(object):
 #d.add_arrow(Arrow(1, 0.95, 0.95, "Hello"))
 #d.render()
 
-d = Display(max_time=1.0)
 
 def tcp_opts(opts):
     i = 0
@@ -354,6 +353,9 @@ server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_la
 # then use a slope of server_tcp_ts_per_sec thereafter
 # e.g. ((tcp_ts - server_first_tcp_ts) / server_tcp_ts_per_sec) - rtt/2
 
+max_time = (max(client_last_real_ts, server_last_real_ts) - start_time) / 1000000.0
+
+d = Display(max_time=max_time)
 
 
 #rtt = 0.0252
