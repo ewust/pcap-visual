@@ -51,7 +51,7 @@ class PcapReader(object):
 
 class Arrow(object):
     color = [255, 255, 255]
-    def __init__(self, direction, start_time, end_time, above_text=None, start_text=None, end_text=None, below_text=None):
+    def __init__(self, direction, start_time, end_time, above_text=None, start_text=None, end_text=None, below_text=None, data_len=0):
         self.direction = direction
         self.start = start_time
         self.end = end_time
@@ -59,10 +59,14 @@ class Arrow(object):
         self.end_text = end_text
         self.above_text = above_text
         self.below_text = below_text
+        self.data_len = data_len
 
     def draw_line(self, display, px_per_time, time_offset):
         start = [100 if self.direction else display.w - 100, (self.start - time_offset) * px_per_time + 100]
         end = [display.w - 100 if self.direction else 100, (self.end - time_offset) * px_per_time + 100]
+        #if self.data_len > 0:
+        #    pygame.draw.line(display.window, Arrow.color, start, end, self.data_len / 200)
+        #else:
         pygame.draw.aaline(display.window, Arrow.color, start, end, True)
 
         return (start, end)
@@ -213,18 +217,30 @@ class Display(object):
 
     def draw_grid(self):
         px_per_time = (self.h - 100.0) / self.max_time
-        step = 10**round(math.log(self.max_time/10)/math.log(10))
+        step = 10**round(math.log(self.max_time/25)/math.log(10))
+
+        major = step * 5
+        if (self.max_time / step < 50):
+            step /= 2.0
+            major /= 2.0
+
 
         start_time = step_round(self.offset_time, step)
         for t in [ round(x*step, 12) for x in range(int((start_time-5*step)/step), int((start_time + self.max_time + 2*step)/step)) ]:
+            draw_major = (round(t/major) == round(t/major, 12))
+            color = [50, 50, 50]
+            if draw_major:
+                color = [100, 100, 100]
+
             t_px = (t - self.offset_time) * px_per_time + 100
-            pygame.draw.aaline(self.window, [50, 50, 50], [60, t_px], [75, t_px], True)
-            pygame.draw.aaline(self.window, [50, 50, 50], [self.w - 60, t_px], [self.w - 75, t_px], True)
+            pygame.draw.aaline(self.window, color, [60, t_px], [75, t_px], True)
+            pygame.draw.aaline(self.window, color, [self.w - 60, t_px], [self.w - 75, t_px], True)
 
             # all the way across?
-            pygame.draw.aaline(self.window, [50, 50, 50], [60, t_px], [self.w - 75, t_px], True)
+            pygame.draw.aaline(self.window, color, [60, t_px], [self.w - 75, t_px], True)
 
-
+            if not(draw_major):
+                continue
 
             t_str = str(t) + 's'
             if abs(t) < 1:
@@ -450,7 +466,7 @@ for pkt in pcap.packets():
             #start_time = 0
     #print 'recvd at %f, tcp ts %d, determined %f -> %f  --- %s' % (recv_ts, server_first_tcp_ts, send_time, recv_time, pkt.__repr__())
 
-    d.add_arrow(Arrow(direction, send_time, recv_time, flags_to_str(pkt.data.data.flags)))
+    d.add_arrow(Arrow(direction, send_time, recv_time, flags_to_str(pkt.data.data.flags), data_len=len(tcp.data)))
 
 d.render()
 
