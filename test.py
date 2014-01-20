@@ -154,6 +154,9 @@ class Display(object):
         self.arrows.append(arrow)
 
 
+    def px_to_time(self, px):
+        return float((px) * self.max_time) / (self.h)
+
     def adjust_max_time(self, zoom_in=True, center_on=None):
         if center_on == None:
             center_on = (self.h - 100) / 2
@@ -226,6 +229,8 @@ d.render()
 
 clock = pygame.time.Clock()
 
+drag_start = None
+drag_start_time = None
 
 #input handling (somewhat boilerplate code):
 while True:
@@ -246,4 +251,13 @@ while True:
                 d.adjust_max_time(True, y)
                 #d.max_time /= 1.2
                 d.render()
-
+            elif event.button == 1:
+                drag_start = event.pos[1]
+                drag_start_time = d.offset_time
+        elif drag_start != None and event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            drag_start = None
+            drag_start_time = None
+        elif drag_start != None and event.type == pygame.MOUSEMOTION:
+            offset_px = drag_start - event.pos[1]
+            d.offset_time = drag_start_time + d.px_to_time(offset_px)
+            d.render()
