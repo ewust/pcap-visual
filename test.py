@@ -62,8 +62,10 @@ class Arrow(object):
         self.data_len = data_len
 
     def draw_line(self, display, px_per_time, time_offset):
-        start = [100 if self.direction else display.w - 100, (self.start - time_offset) * px_per_time + 100]
-        end = [display.w - 100 if self.direction else 100, (self.end - time_offset) * px_per_time + 100]
+        start = [100 if self.direction else display.w - 100, \
+                 (self.start - time_offset) * px_per_time + Display.HEADER_HEIGHT]
+        end = [display.w - 100 if self.direction else 100, \
+                (self.end - time_offset) * px_per_time + Display.HEADER_HEIGHT]
         #if self.data_len > 0:
         #    pygame.draw.line(display.window, Arrow.color, start, end, self.data_len / 200)
         #else:
@@ -181,12 +183,17 @@ def step_round(x, step=1):
     return round(step * round(float(x)/step), 12)
 
 class Display(object):
-    def __init__(self, w=1024, h=740, max_time=1.000):
+    HEADER_HEIGHT = 30
+
+    def __init__(self, w=1024, h=740, max_time=1.000, header_left="client", header_right="server"):
         self.w = w
         self.h = h
         self.max_time = max_time
+        self.header_left = header_left
+        self.header_right = header_right
         self.offset_time = 0
         self.window = pygame.display.set_mode((self.w, self.h))
+        self.header = None
         self.arrows = []
 
     def add_arrow(self, arrow):
@@ -198,10 +205,10 @@ class Display(object):
 
     def adjust_max_time(self, zoom_in=True, center_on=None):
         if center_on == None:
-            center_on = (self.h - 100) / 2
+            center_on = (self.h - Display.HEADER_HEIGHT) / 2
 
-        px_per_time = (self.h - 100.0) / self.max_time
-        center_time = (center_on - 100.0) / px_per_time + self.offset_time
+        px_per_time = (self.h - Display.HEADER_HEIGHT) / self.max_time
+        center_time = (center_on - Display.HEADER_HEIGHT) / px_per_time + self.offset_time
         if zoom_in:
             self.max_time /= 1.1
         else:
@@ -209,14 +216,14 @@ class Display(object):
 
         # need to recenter; center_on px should map to the same time (center_time)
         # (center_on - 100) / new_px_per_time == (center_on - 100) / px_per_time + offset_time
-        px_per_time = (self.h - 100.0) / self.max_time
+        px_per_time = (self.h - Display.HEADER_HEIGHT) / self.max_time
         #offset_px = (center_time * px_per_time) #- center_on
-        self.offset_time = center_time - ((center_on - 100.0) / px_per_time) #- center_time #offset_px / px_per_time
+        self.offset_time = center_time - ((center_on - Display.HEADER_HEIGHT) / px_per_time) #- center_time #offset_px / px_per_time
         #print "center px: %d, center time: %f, max_time: %f, (%d - %d) => %f sec" % \
         #        (center_on, center_time, self.max_time, center_time*px_per_time, center_on, self.offset_time)
 
     def draw_grid(self):
-        px_per_time = (self.h - 100.0) / self.max_time
+        px_per_time = (self.h - Display.HEADER_HEIGHT) / self.max_time
         step = 10**round(math.log(self.max_time/25)/math.log(10))
 
         major = step * 5
@@ -232,7 +239,7 @@ class Display(object):
             if draw_major:
                 color = [100, 100, 100]
 
-            t_px = (t - self.offset_time) * px_per_time + 100
+            t_px = (t - self.offset_time) * px_per_time + Display.HEADER_HEIGHT
             #pygame.draw.aaline(self.window, color, [60, t_px], [75, t_px], True)
             #pygame.draw.aaline(self.window, color, [self.w - 60, t_px], [self.w - 75, t_px], True)
 
@@ -254,13 +261,33 @@ class Display(object):
             self.window.blit(text_img, [55 - font.size(t_str)[0], t_px - font.size(t_str)[1]/2])
             self.window.blit(text_img, [self.w - 55, t_px - font.size(t_str)[1]/2])
 
+    def draw_header(self):
+
+        if self.header == None:
+            header = pygame.Surface((self.w, Display.HEADER_HEIGHT))
+            header.fill((64, 64, 64))
+            font = pygame.font.Font(None, 48)
+
+            # center text vertically
+            vert_pos = (Display.HEADER_HEIGHT - font.size(self.header_left)[1])/2
+
+            left_img = font.render(self.header_left, 1, (255, 255, 255))
+            header.blit(left_img, [10, vert_pos])
+
+            right_img = font.render(self.header_right, 1, (255, 255, 255))
+            header.blit(right_img, [self.w - 10 - font.size(self.header_right)[0], vert_pos])
+
+            self.header = header
+
+        self.window.blit(self.header, [0, 0])
+
 
     def render(self):
         # our playing field is going to be W-200, H-100
         # so time*(H-100)/max_time gives px height for each arrow
         self.window.fill([0, 0, 0])
 
-        px_per_time = (self.h - 100) / self.max_time
+        px_per_time = (self.h - Display.HEADER_HEIGHT) / self.max_time
         #px_offset = self.offset * px_per_time
         self.draw_grid()
 
@@ -272,6 +299,7 @@ class Display(object):
             arrow.draw(self, px_per_time, self.offset_time)
 
 
+        self.draw_header()
         pygame.display.flip()
 
 
@@ -445,7 +473,9 @@ if tcp_ts_support:
 
 max_time = (max(client_last_real_ts, server_last_real_ts) - start_time) / 1000000.0
 
-d = Display(max_time=max_time)
+d = Display(max_time=max_time, \
+            header_left="%s:%d" % (socket.inet_ntoa(client_ip), client_port), \
+            header_right="%s:%d" % (socket.inet_ntoa(server_ip), server_port))
 
 
 #rtt = 0.0252
