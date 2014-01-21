@@ -233,8 +233,8 @@ class Display(object):
                 color = [100, 100, 100]
 
             t_px = (t - self.offset_time) * px_per_time + 100
-            pygame.draw.aaline(self.window, color, [60, t_px], [75, t_px], True)
-            pygame.draw.aaline(self.window, color, [self.w - 60, t_px], [self.w - 75, t_px], True)
+            #pygame.draw.aaline(self.window, color, [60, t_px], [75, t_px], True)
+            #pygame.draw.aaline(self.window, color, [self.w - 60, t_px], [self.w - 75, t_px], True)
 
             # all the way across?
             pygame.draw.aaline(self.window, color, [60, t_px], [self.w - 75, t_px], True)
@@ -266,6 +266,9 @@ class Display(object):
 
         for arrow in self.arrows:
 
+            #bound_top = self.offset_time
+            #bound_bot = self.offset_time + self.max_time
+            #if (bound_top < arrow.end < bound_bot) or (bound_top < arrow.start < bound_bot):
             arrow.draw(self, px_per_time, self.offset_time)
 
 
@@ -291,6 +294,9 @@ def tcp_opts(opts):
     while i < len(opts):
         kind, opt_len = struct.unpack('>BB', opts[i:i+2])
         opt_data = ''
+
+        if kind == 0x00:
+            break
 
         if kind == 0x01:
             # NOP has no opt len
@@ -353,6 +359,7 @@ server_rtt_seqs = {}
 rtt = 0.0
 client_rtt = None
 server_rtt = None
+tcp_ts_support = True
 for pkt in pcap.packets():
 
     ip = pkt.data
@@ -380,6 +387,9 @@ for pkt in pcap.packets():
     elif tcp.flags == (dpkt.tcp.TH_SYN | dpkt.tcp.TH_ACK):
         # 3) estimate RTT t(SYN-ACK) - t(SYN)
         rtt = (pkt.ts - latest_syn.ts) / 1000000.0
+        # do they support tcp ts?
+        print pkt.__repr__()
+        #server_first_tcp_ts, echo_reply = get_tcp_ts(tcp.opts)
 
 
     # 4) get starting TCP timestamps (in SYN and SYN-ACK)
@@ -422,8 +432,11 @@ client_last_real_ts = latest_client_pkt.ts
 server_last_tcp_ts, echo_reply = get_tcp_ts(latest_server_pkt.data.data.opts)
 server_last_real_ts = latest_server_pkt.ts
 
-client_tcp_ts_per_sec = (client_last_tcp_ts - client_first_tcp_ts) / ((client_last_real_ts - client_first_real_ts)/1000000.0)
-server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_last_real_ts - server_first_real_ts)/1000000.0)
+client_tcp_ts_per_sec = 0.0
+server_tcp_ts_per_sec = 0.0
+if tcp_ts_support:
+    client_tcp_ts_per_sec = (client_last_tcp_ts - client_first_tcp_ts) / ((client_last_real_ts - client_first_real_ts)/1000000.0)
+    server_tcp_ts_per_sec = (server_last_tcp_ts - server_first_tcp_ts) / ((server_last_real_ts - server_first_real_ts)/1000000.0)
 
 # we really only care about the server I guess...
 # given a tcp_ts, we want server_first_tcp_ts to map to (server_first_real_ts - rtt/2),
@@ -478,6 +491,7 @@ drag_start_time = None
 #input handling (somewhat boilerplate code):
 while True:
     clock.tick(10)
+    render = False
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             sys.exit(0)
@@ -486,12 +500,14 @@ while True:
                 # scroll down/out
                 y = event.pos[1]
                 d.adjust_max_time(False, y)
-                d.render()
+                #d.render()
+                render = True
             elif event.button == 4:
                 # scroll up/in
                 y = event.pos[1]
                 d.adjust_max_time(True, y)
-                d.render()
+                #d.render()
+                render = True
             elif event.button == 1:
                 drag_start = event.pos[1]
                 drag_start_time = d.offset_time
@@ -501,4 +517,8 @@ while True:
         elif drag_start != None and event.type == pygame.MOUSEMOTION:
             offset_px = drag_start - event.pos[1]
             d.offset_time = drag_start_time + d.px_to_time(offset_px)
-            d.render()
+            render = True
+
+
+    if render:
+        d.render()
