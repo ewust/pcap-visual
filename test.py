@@ -484,6 +484,8 @@ print 'Calculated client: %s:%d, RTT: %f seconds (client: %f s, server: %f s), c
     (socket.inet_ntoa(client_ip), client_port, rtt, client_rtt, server_rtt, client_tcp_ts_per_sec, server_tcp_ts_per_sec)
 
 pcap = PcapReader(open(sys.argv[1], 'r'))
+cli_isn = None
+srv_isn = None
 for pkt in pcap.packets():
     recv_ts = (pkt.ts - start_time) / 1000000.0
     ip = pkt.data
@@ -496,6 +498,8 @@ for pkt in pcap.packets():
         # client; shift end time + rtt
         recv_time += rtt/2.0
         #print 'Send %f - %f' % (send_time, recv_time)
+        if cli_isn is None:
+            cli_isn = tcp.seq
     else:
         # server; set start time based off tcp timestamp
         value, echo = get_tcp_ts(tcp.opts)
@@ -507,9 +511,25 @@ for pkt in pcap.packets():
             send_time = diff
             #print 'Adjusting from %f sec to %f sec' % (recv_time, send_time)
             #start_time = 0
+        if srv_isn is None:
+            srv_isn = tcp.seq
     #print 'recvd at %f, tcp ts %d, determined %f -> %f  --- %s' % (recv_ts, server_first_tcp_ts, send_time, recv_time, pkt.__repr__())
 
-    d.add_arrow(Arrow(direction, send_time, recv_time, flags_to_str(pkt.data.data.flags), data_len=len(tcp.data)))
+
+    rel_seq = 0
+    rel_ack = 0
+    if cli_isn is not None and srv_isn is not None:
+        if direction:
+            rel_seq = tcp.seq - cli_isn
+            rel_ack = tcp.ack - srv_isn
+        else:
+            rel_seq = tcp.seq - srv_isn
+            rel_ack = tcp.ack - cli_isn
+    lbl = '%s (%d, %d)' % (flags_to_str(pkt.data.data.flags), rel_seq, rel_ack)
+    if len(tcp.data) > 0:
+        lbl += ' +%d' % len(tcp.data)
+
+    d.add_arrow(Arrow(direction, send_time, recv_time, lbl, data_len=len(tcp.data)))
 
 d.render()
 
